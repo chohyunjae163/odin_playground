@@ -48,8 +48,6 @@ main :: proc() {
         }
     }
 
-    cells[18] = mined_cell
-    
     // open cell
     // write number of mines around the cell if any
     // if no mines around, write -2 on the square and expand

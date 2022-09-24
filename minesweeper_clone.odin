@@ -47,8 +47,8 @@ main :: proc() {
             i += 1
         }
     }
-    cells[1] = mined_cell
-    cells[10] = mined_cell
+
+    cells[18] = mined_cell
     
     // open cell
     // write number of mines around the cell if any
@@ -64,7 +64,6 @@ main :: proc() {
         unvisited : [dynamic]Position
         append(&unvisited,pos)
         offset := -1
-        loop_c := 0
         expand_once := false
         expand: for {     
             offset += 1
@@ -90,11 +89,6 @@ main :: proc() {
             }            
 
             expand_once = true
-            //checking
-            loop_c += 1
-            if loop_c > 3 {
-                break expand
-            }
         }
     }
 

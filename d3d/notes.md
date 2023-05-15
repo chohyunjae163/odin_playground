@@ -13,7 +13,7 @@ Each time an application presents a new frame for display, the first buffer in t
 This process is called swapping or flipping.
 
 ## DirectX Graphics Infrastructure(DXGI)
-DXGI is ** a set of APIs ** used to configure and manage
+DXGI is **a set of APIs** used to configure and manage
 low-level graphics and graphics adapter resources
 
 ## BACK BUFFER

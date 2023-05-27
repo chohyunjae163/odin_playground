@@ -86,6 +86,16 @@ main :: proc() {
 	depthbuffer_view : ^D3D11.IDepthStencilView
 	device->CreateDepthStencilView(depthbuffer,nil,&depthbuffer_view)
 
+
+	//rasterizer 
+	rasterizer_desc := D3D11.RASTERIZER_DESC {
+		FillMode =  .WIREFRAME,
+		CullMode = .BACK,
+		DepthBias = 0,
+		FrontCounterClockwise = true,
+	}
+	rasterizer_state : ^D3D11.IRasterizerState
+	device->CreateRasterizerState(&rasterizer_desc,&rasterizer_state)
 	//viewport setting
 	viewport := D3D11.VIEWPORT {
 		0,0,
@@ -109,7 +119,7 @@ main :: proc() {
 	cam_f :: linalg.Vector3f32 {0,0,1}
 	cam_u :: linalg.Vector3f32 {0,1,0}
 	cam_r :: linalg.Vector3f32 {1,0,0}
-	cam_p :: linalg.Vector3f32 {0,0,-3.5}
+	cam_p :: linalg.Vector3f32 {0,1.5,-3}
 	x := -linalg.dot(cam_r,cam_p)
 	y := -linalg.dot(cam_u,cam_p)
 	z := -linalg.dot(cam_f,cam_p)
@@ -147,23 +157,22 @@ main :: proc() {
 	}
 
 	//vertex buffer
-// 	  vertex_data := [?]f32 {
-// 	-0.5,0.5,-0.5, 0.0,1.0,0.0,
-// 	0.5,0.5,-0.5,  0.0,1.0,0.0,
-// 	0.5,0.5,0.5,   0.0,1.0,1.0,
-// 	-0.5,0.5,0.5,  0.0,1.0,0.0,
+/*	  vertex_data := [?]f32 {
+	-0.5,0.5,-0.5, 0.0,1.0,0.0,
+	0.5,0.5,-0.5,  0.0,1.0,0.0,
+	0.5,0.5,0.5,   0.0,1.0,1.0,
+	-0.5,0.5,0.5,  0.0,1.0,0.0,
 
-// 	-0.5,-0.5,0.5, 0.0,0.0,1.0,
-// 	0.5, -0.5,0.5, 0.0,1.0,0.0,
-// 	0.5, -0.5,-0.5,0.0,1.0,0.0,
-// 	-0.5,-0.5,-0.5,0.0,1.0,1.0,
-  // }
+	-0.5,-0.5,0.5, 0.0,0.0,1.0,
+	0.5, -0.5,0.5, 0.0,1.0,0.0,
+	0.5, -0.5,-0.5,0.0,1.0,0.0,
+	-0.5,-0.5,-0.5,0.0,1.0,1.0,
+  }*/
 	vertex_buffer : ^D3D11.IBuffer
-	vertex_buffer_stride := (u32)(size_of(skinned_mesh_vertex))
-	vertex_buffer_offset := (u32)(0)
 	{
+		vertex_buffer_size := len(vertex_data) * vertex_size
 		vertex_buffer_desc := D3D11.BUFFER_DESC {
-			ByteWidth = size_of(vertex_data),
+			ByteWidth = (u32)(vertex_buffer_size),
 			Usage = .IMMUTABLE,
 			BindFlags = {.VERTEX_BUFFER},
 		}
@@ -171,36 +180,38 @@ main :: proc() {
 		device->CreateBuffer(&vertex_buffer_desc,
 			&D3D11.SUBRESOURCE_DATA { 
 				pSysMem = &vertex_data[0],
-				SysMemPitch = size_of(vertex_data)},
+				SysMemPitch = 0},//(u32)(vertex_buffer_size)},
 			&vertex_buffer)
 	}
-
+	vertex_buffer_stride := (u32)(vertex_size)
+	vertex_buffer_offset := (u32)(0)
 
 
 	//index buffer
-// 	  index_data := [?]u32{
-// 	0,1,2,
-// 	0,2,3,
+/*	  index_data := [?]u32{
+	0,1,2,
+	0,2,3,
 
-// 	4,5,6,
-// 	4,6,7,
+	4,5,6,
+	4,6,7,
 
-// 	3,2,5,
-// 	3,5,4,
+	3,2,5,
+	3,5,4,
 
-// 	2,1,6,
-// 	2,6,5,
+	2,1,6,
+	2,6,5,
 
-// 	1,7,6,
-// 	1,0,7,
+	1,7,6,
+	1,0,7,
 
-// 	0,3,4,
-// 	0,4,7,
-  // }
+	0,3,4,
+	0,4,7,
+  }*/
 	index_buffer : ^D3D11.IBuffer
 	{
+		index_buffer_size := len(index_data) * 4
 		index_buffer_desc := D3D11.BUFFER_DESC {
-			ByteWidth = size_of(index_data),
+			ByteWidth = (u32)(index_buffer_size),
 			Usage = .IMMUTABLE,
 			BindFlags = {.INDEX_BUFFER},
 		}
@@ -208,7 +219,7 @@ main :: proc() {
 		device->CreateBuffer(&index_buffer_desc,
 			&D3D11.SUBRESOURCE_DATA {
 				pSysMem = &index_data[0],
-				SysMemPitch = size_of(index_data)},
+				SysMemPitch = 0},//(u32)(index_buffer_size)},
 			&index_buffer)
 	}
 
@@ -256,7 +267,7 @@ main :: proc() {
 
 
 	/////////////////////// SHOW WINDOW ///////////////////////
-	
+
 	SDL.ShowWindow(window)
 	for quit := false; !quit; {
 		for e: SDL.Event; SDL.PollEvent(&e); {
@@ -282,14 +293,16 @@ main :: proc() {
 
 		/////////////////////// Render ///////////////////////
 		{
-			device_context->ClearRenderTargetView(framebuffer_view,&[4]f32{0.0,0.0,0.0,1.0})
+			device_context->ClearRenderTargetView(framebuffer_view,&[4]f32{0.0,0.0,1.0,1.0})
 			device_context->ClearDepthStencilView(depthbuffer_view,{.DEPTH},1,0)
 
 			//INPUT ASSEMBLER STAGE
 			device_context->IASetPrimitiveTopology(.TRIANGLELIST)
 			device_context->IASetInputLayout(input_layout)
 			device_context->IASetVertexBuffers(0,1,
-			&vertex_buffer,&vertex_buffer_stride,&vertex_buffer_offset)
+				&vertex_buffer,
+				&vertex_buffer_stride,
+				&vertex_buffer_offset)
 			device_context->IASetIndexBuffer(index_buffer,.R32_UINT,0)
 	
 			//VERTEX STAGE
@@ -300,6 +313,7 @@ main :: proc() {
 			device_context->PSSetShader(pixel_shader,nil,0)
 
 			//RASETERIZE STAGE
+			device_context->RSSetState(rasterizer_state)
 			device_context->RSSetViewports(1,&viewport)
 
 			//OUTER MERGER STAGE

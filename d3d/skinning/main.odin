@@ -7,6 +7,7 @@ package main
 / vertex blending 
 / enveloping, or 
 / skeleton-subspace deformation
+/ hmm... gotta update the vertices with skeleton data... let's see..
 */
 
 
@@ -18,10 +19,12 @@ import "core:image/png"
 import "core:bytes"
 import "core:math/linalg"
 import "core:os"
+import "core:math"
 
 main :: proc() {
   //load vertex data and index data
   skinned_submeshes := read_skel_mesh_from_file("./bin/YBot.dc")
+  bones := parse_skeleton_bone()
   //create a window with SDL2
   SDL.Init({.VIDEO})
   defer SDL.Quit()
@@ -103,10 +106,44 @@ main :: proc() {
    }
   
   // constant buffer
-  Constants :: struct {
-    transform : matrix[4,4]f32,
-  }
   using linalg
+  Constants :: struct {
+    mvp : linalg.Matrix4f32,
+    bone_matrix : [112]linalg.Matrix4f32,
+    bone_matrix_inv : [112]linalg.Matrix4f32,
+  } 
+
+  bone_matrices : [112]Matrix4f32
+  bone_matrices_inv : [112]Matrix4f32
+  for bone,i in bones {
+    s : Matrix4f32 = {
+      bones[i].scale.x,0,0,0,
+      0,bones[i].scale.y,0,0,
+      0,0,bones[i].scale.z,0,
+      0,0,0,1,
+    }
+    t : Matrix4f32 = {
+      1,0,0,bones[i].position.x,
+      0,1,0,bones[i].position.y,
+      0,0,1,bones[i].position.z,
+      0,0,0,1,
+    }
+    q : Quaternionf32 
+    q.w = bones[i].quaternion.w
+    q.x = bones[i].quaternion.x
+    q.y = bones[i].quaternion.y
+    q.z = bones[i].quaternion.z
+    a := angle_from_quaternion_f32(q)
+    r := matrix4_from_quaternion_f32(q)
+    bone_matrix := s*r*t
+    parent_bone_matrix := MATRIX4F32_IDENTITY
+    
+    if bone.parent > -1 {
+      parent_bone_matrix = bone_matrices[bone.parent]
+    }
+    bone_matrices[i] = bone_matrix * parent_bone_matrix
+    bone_matrices_inv[i] = matrix4x4_inverse(bone_matrices[i])
+  }
   constant_buffer : ^D3D11.IBuffer
   world_matrix := MATRIX4F32_IDENTITY 
   view_matrix : Matrix4f32
@@ -124,15 +161,15 @@ main :: proc() {
     cam_f : Vector3f32   =  {0,0,1}
     cam_u : Vector3f32   =  {0,1,0}
     cam_r : Vector3f32   =  {1,0,0}
-    cam_p : Vector3f32   =  {0,0,-2}
+    cam_p : Vector3f32   =  {0,1.5,-4}
     x:= -dot(cam_r,cam_p)
     y:= -dot(cam_u,cam_p)
     z:= -dot(cam_f,cam_p)
-    view_matrix : Matrix4f32 = {
+    view_matrix = {
       cam_r.x,cam_r.y,cam_r.z,x,
       cam_u.x,cam_u.y,cam_u.z,y,
       cam_f.x,cam_f.y,cam_f.z,z,
-      0,0,0,1,
+     0,0,0,1,
     }
 
     //perspective matrix
@@ -140,7 +177,7 @@ main :: proc() {
     n := f32(1)
     x_scale := f32(1.4281)
     y_scale := f32(1.4281)
-    projection_matrix : Matrix4f32 = {
+    projection_matrix = {
       x_scale,0,0,0,
       0,y_scale,0,0,
       0,0,f/(f-n),n*f/(n-f),
@@ -291,12 +328,14 @@ main :: proc() {
     {
       using linalg
       constants := (^Constants)(mapped_subresource.pData)
-      constants.transform = mul(projection_matrix,mul(view_matrix,world_matrix))
+      constants.mvp = mul(projection_matrix,mul(view_matrix,world_matrix))
+      constants.bone_matrix = bone_matrices_inv
     }
     device_context->Unmap(constant_buffer,0)
 
     ////// rendering //////
-    device_context->ClearRenderTargetView(framebuffer_view,&[4]f32{0,1,0,1})
+
+    device_context->ClearRenderTargetView(framebuffer_view,&[4]f32{0,1,1,1})
     device_context->ClearDepthStencilView(depthbuffer_view,{.DEPTH},1,0)
 
     //input assembler stage
@@ -316,6 +355,7 @@ main :: proc() {
     device_context->RSSetViewports(1,&viewport)
 
     for submesh,index in skinned_submeshes {
+      
       vertex_data := submesh.vertex_data
       index_data := submesh.index_data
 

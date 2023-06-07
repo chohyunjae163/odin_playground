@@ -143,6 +143,7 @@ main :: proc() {
     }
     bone_matrices[i] = bone_matrix * parent_bone_matrix
     bone_matrices_inv[i] = matrix4x4_inverse(bone_matrices[i])
+    bone_matrices[i] *= bone_matrices_inv[i]
   }
   constant_buffer : ^D3D11.IBuffer
   world_matrix := MATRIX4F32_IDENTITY 
@@ -329,7 +330,7 @@ main :: proc() {
       using linalg
       constants := (^Constants)(mapped_subresource.pData)
       constants.mvp = mul(projection_matrix,mul(view_matrix,world_matrix))
-      constants.bone_matrix = bone_matrices_inv
+      constants.bone_matrix = bone_matrices
     }
     device_context->Unmap(constant_buffer,0)
 

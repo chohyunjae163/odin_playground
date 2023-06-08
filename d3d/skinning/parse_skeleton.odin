@@ -11,19 +11,19 @@ import "core:strings"
 import "core:log"
 
 bone :: struct {
-  index    : int,
-  name     : string,
-  parent   : string,
-  position : linalg.Vector3f32,
-  rotation : linalg.Vector3f32,
-  scale    : linalg.Vector3f32,
+  id       : int,
+  parent   : int,
+  position : linalg.Vector4f32,
+  quaternion : linalg.Vector4f32,
+  scale    : linalg.Vector4f32,
 }
 
 @(private="file")
-conv_string_to_vector3 :: proc(s : string) -> linalg.Vector3f32 {
+conv_string_to_vector4 :: proc(s : string) -> linalg.Vector4f32 {
   using linalg
-  ret : Vector3f32
+  ret : Vector4f32
   values := strings.split(s," ")
+  defer delete(values)
   ok : bool
   ret.x,ok = strconv.parse_f32(values[0])
   assert(ok)
@@ -31,18 +31,16 @@ conv_string_to_vector3 :: proc(s : string) -> linalg.Vector3f32 {
   assert(ok)
   ret.z,ok = strconv.parse_f32(values[2])
   assert(ok)
+  ret.w = 1.0
+  if len(values) > 3 {
+    ret.w,ok = strconv.parse_f32(values[3])
+    assert(ok)
+  }
   return ret
 }
 
 //parse the skeleton!
 parse_skeleton_bone :: proc() -> [112]bone {
-  /*load_from_file :: proc(
-    filename: string, 
-    options := DEFAULT_OPTIONS, 
-    error_handler := default_error_handler, 
-    allocator := context.allocator) 
-    -> (doc: ^Document, err: Error) 
-  */
   using fmt
   track : mem.Tracking_Allocator
   mem.tracking_allocator_init(&track,context.allocator)
@@ -55,6 +53,13 @@ parse_skeleton_bone :: proc() -> [112]bone {
       }      
     }
   }
+  /*load_from_file :: proc(
+    filename: string, 
+    options := DEFAULT_OPTIONS, 
+    error_handler := default_error_handler, 
+    allocator := context.allocator) 
+    -> (doc: ^Document, err: Error) 
+  */
   doc, err := xml.load_from_file("skeleton.xml",xml.DEFAULT_OPTIONS,xml.default_error_handler,context.allocator)
   if err != nil {
     eprintln("something went wrong with parsing a file")
@@ -64,6 +69,9 @@ parse_skeleton_bone :: proc() -> [112]bone {
   attribute := doc.elements[0].attribs[0]
   assert(attribute.key == "Count")
   bones : [112]bone
+  m_bones := make(map[string]int)
+  defer delete(m_bones)
+  //hips has no parent so set it to -1.
   elems :=  doc.elements[1:]// the first element is skeleton count information.
   elem_count := len(elems)
   bone_count := strconv.atoi(attribute.val)
@@ -71,18 +79,21 @@ parse_skeleton_bone :: proc() -> [112]bone {
   for elem_index := 0; elem_index < elem_count; elem_index += 1 {
     element := elems[elem_index]
     assert(element.ident == "Bone")
-    bones[bone_index].index = bone_index
+    bones[bone_index].id = bone_index
     attribs := element.attribs
     substrings := strings.split(attribs[0].val,":")
-    bones[bone_index].name = substrings[1] 
+    defer delete(substrings)
+    m_bones[substrings[1]] = bone_index
+    bones[bone_index].parent= -1
     if len(attribs) > 1 {
-    substrings = strings.split(attribs[1].val,":")      
-      bones[bone_index].parent = substrings[1]
+      parent_attribute := strings.split(attribs[1].val,":")
+      defer delete(parent_attribute)
+      bones[bone_index].parent = m_bones[parent_attribute[1]]
     }
     
-    bone_data := [3]^linalg.Vector3f32 {
+    bone_data := [3]^linalg.Vector4f32 {
       &bones[bone_index].position,
-      &bones[bone_index].rotation,
+      &bones[bone_index].quaternion,
       &bones[bone_index].scale,
     }
 
@@ -90,7 +101,7 @@ parse_skeleton_bone :: proc() -> [112]bone {
       elem_index+=1
       element = elems[elem_index]
       assert(len(element.value) > 0)
-      bone_data[i]^ = conv_string_to_vector3(element.value)
+      bone_data[i]^ = conv_string_to_vector4(element.value)
     }
     
     bone_index += 1

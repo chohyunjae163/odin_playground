@@ -20,11 +20,32 @@ import "core:bytes"
 import "core:math/linalg"
 import "core:os"
 import "core:math"
+import "core:mem"
+import "core:fmt"
 
 main :: proc() {
+  using fmt
+  //tracking memory leak
+  track : mem.Tracking_Allocator
+  mem.tracking_allocator_init(&track,context.allocator)
+  context.allocator = mem.tracking_allocator(&track)
+  defer {
+    if len( track.allocation_map ) > 0 {
+    	for _,v in track.allocation_map {
+    	  printf("%v leaked %v bytes. \n",v.location, v.size)
+    	}
+    	println()
+    }
+  }
+
   //load vertex data and index data
   skinned_submeshes := read_skel_mesh_from_file("./bin/YBot.dc")
+  //load skeleton data
   bones := parse_skeleton_bone()
+  //load animation data
+  anim_frames : [dynamic]anim_frame
+  defer delete(anim_frames)
+  parse_anim(&anim_frames)
   //create a window with SDL2
   SDL.Init({.VIDEO})
   defer SDL.Quit()
@@ -133,7 +154,6 @@ main :: proc() {
     q.x = bones[i].quaternion.x
     q.y = bones[i].quaternion.y
     q.z = bones[i].quaternion.z
-    a := angle_from_quaternion_f32(q)
     r := matrix4_from_quaternion_f32(q)
     bone_matrix := s*r*t
     parent_bone_matrix := MATRIX4F32_IDENTITY
@@ -309,6 +329,7 @@ main :: proc() {
       &pixel_shader)
   }
 
+  anim_frame_index := 0
   //sdl show window
   SDL.ShowWindow(window)
   for quit := false; !quit; {
@@ -330,6 +351,25 @@ main :: proc() {
       using linalg
       constants := (^Constants)(mapped_subresource.pData)
       constants.mvp = mul(projection_matrix,mul(view_matrix,world_matrix))
+
+      //calculate idle anim bones
+      bone_anim_matrices : [112]Matrix4f32
+      for bone, i in bones {
+        cur_anim_frame := anim_frames[anim_frame_index]
+        cur_anim_frame_pos := cur_anim_frame.position[i]
+        cur_anim_frame_quat := cur_anim_frame.quaternion[i]
+        s :: MATRIX4F32_IDENTITY
+        t := MATRIX4F32_IDENTITY
+        t[0][3]=cur_anim_frame_pos.x
+        t[1][3]=cur_anim_frame_pos.y
+        t[2][3]=cur_anim_frame_pos.z
+        q : Quaternionf32
+        q.w = cur_anim_frame_quat.w
+        q.x = cur_anim_frame_quat.x
+        q.y = cur_anim_frame_quat.y
+        q.z = cur_anim_frame_quat.z
+        r := matrix4_from_quaternion_f32(q)
+      }
       constants.bone_matrix = bone_matrices
     }
     device_context->Unmap(constant_buffer,0)

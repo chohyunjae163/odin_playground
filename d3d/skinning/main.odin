@@ -134,8 +134,8 @@ main :: proc() {
     bone_matrix_inv : [112]linalg.Matrix4f32,
   } 
 
-  bone_matrices : [112]Matrix4f32
-  bone_matrices_inv : [112]Matrix4f32
+  ref_pose : [112]Matrix4f32
+  ref_pose_inv : [112]Matrix4f32
   for bone,i in bones {
     s : Matrix4f32 = {
       bones[i].scale.x,0,0,0,
@@ -159,11 +159,11 @@ main :: proc() {
     parent_bone_matrix := MATRIX4F32_IDENTITY
     
     if bone.parent > -1 {
-      parent_bone_matrix = bone_matrices[bone.parent]
+      parent_bone_matrix = ref_pose[bone.parent]
     }
-    bone_matrices[i] = bone_matrix * parent_bone_matrix
-    bone_matrices_inv[i] = matrix4x4_inverse(bone_matrices[i])
-    bone_matrices[i] *= bone_matrices_inv[i]
+    ref_pose[i] = bone_matrix * parent_bone_matrix
+    ref_pose_inv[i] = matrix4x4_inverse(ref_pose[i])
+    ref_pose[i] *= ref_pose_inv[i]
   }
   constant_buffer : ^D3D11.IBuffer
   world_matrix := MATRIX4F32_IDENTITY 
@@ -330,6 +330,9 @@ main :: proc() {
   }
 
   anim_frame_index := 0
+  cur_tick : u32 = SDL.GetTicks()
+  last_tick := cur_tick 
+  delta_tick := cur_tick - last_tick
   //sdl show window
   SDL.ShowWindow(window)
   for quit := false; !quit; {
@@ -344,6 +347,9 @@ main :: proc() {
       }
     }
     
+    last_tick = cur_tick
+    cur_tick = SDL.GetTicks()//get millisec
+    delta_tick += (cur_tick - last_tick)
     //update transform
     mapped_subresource : D3D11.MAPPED_SUBRESOURCE
     device_context->Map(constant_buffer,0,.WRITE_DISCARD,{},&mapped_subresource)
@@ -352,25 +358,45 @@ main :: proc() {
       constants := (^Constants)(mapped_subresource.pData)
       constants.mvp = mul(projection_matrix,mul(view_matrix,world_matrix))
 
+      num_anim_frame :: 86
+      millisec_per_frame :: 1  * 1000
+      if delta_tick > millisec_per_frame {
+        anim_frame_index += 1
+        anim_frame_index %= num_anim_frame
+        delta_tick = 0
+      }
+
+      //anim_frame_index = 0
       //calculate idle anim bones
-      bone_anim_matrices : [112]Matrix4f32
+      anim_pose : [112]Matrix4f32
       for bone, i in bones {
         cur_anim_frame := anim_frames[anim_frame_index]
         cur_anim_frame_pos := cur_anim_frame.position[i]
         cur_anim_frame_quat := cur_anim_frame.quaternion[i]
         s :: MATRIX4F32_IDENTITY
         t := MATRIX4F32_IDENTITY
-        t[0][3]=cur_anim_frame_pos.x
-        t[1][3]=cur_anim_frame_pos.y
-        t[2][3]=cur_anim_frame_pos.z
+        t[3][0]=cur_anim_frame_pos.x
+        t[3][1]=cur_anim_frame_pos.y
+        t[3][2]=cur_anim_frame_pos.z
         q : Quaternionf32
         q.w = cur_anim_frame_quat.w
         q.x = cur_anim_frame_quat.x
         q.y = cur_anim_frame_quat.y
         q.z = cur_anim_frame_quat.z
         r := matrix4_from_quaternion_f32(q)
+        anim_bone_matrix := s*r*t
+        parent_anim_bone_matrix := MATRIX4F32_IDENTITY
+        if bone.parent > -1 {
+          parent_anim_bone_matrix = anim_pose[bone.parent]
+        }
+        anim_pose[i] = anim_bone_matrix * parent_anim_bone_matrix
       }
-      constants.bone_matrix = bone_matrices
+      
+      skinned_pose : [112]Matrix4f32
+      for bone, i in bones {
+        skinned_pose[i] = ref_pose[i] * anim_pose[i]
+      }
+      constants.bone_matrix = skinned_pose
     }
     device_context->Unmap(constant_buffer,0)
 

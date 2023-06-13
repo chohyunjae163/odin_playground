@@ -139,38 +139,32 @@ main :: proc() {
   Constants :: struct {
     mvp : linalg.Matrix4f32,
     bone_matrix : [112]linalg.Matrix4f32,
-    bone_matrix_inv : [112]linalg.Matrix4f32,
   } 
 
-  cs_base_pose : [112]Matrix4f32
-  cs_base_pose_inv : [112]Matrix4f32
+  cs_bone_matrices : [112]Matrix4f32
+  cs_bone_matrices_inv : [112]Matrix4f32
   for bone,i in bones {
-    s : Matrix4f32 = {
-      bones[i].scale.x,0,0,0,
-      0,bones[i].scale.y,0,0,
-      0,0,bones[i].scale.z,0,
-      0,0,0,1,
-    }
-    t : Matrix4f32 = {
-      1,0,0,bones[i].position.x,
-      0,1,0,bones[i].position.y,
-      0,0,1,bones[i].position.z,
-      0,0,0,1,
-    }
+    s : Matrix4f32 = 1
+    s[0][0] = bone.scale.x
+    s[1][1] = bone.scale.y
+    s[2][2] = bone.scale.z
+    t : Matrix4f32 = 1
+    t[3].xyz = bone.position.xyz
+    //t = transpose(t)
     q : Quaternionf32 
-    q.w = bones[i].quaternion.w
-    q.x = bones[i].quaternion.x
-    q.y = bones[i].quaternion.y
-    q.z = bones[i].quaternion.z
+    q.x = bone.quaternion.x
+    q.y = bone.quaternion.y
+    q.z = bone.quaternion.z
+    q.w = bone.quaternion.w
     r := matrix4_from_quaternion_f32(q)
-    bone_matrix := s*r*t
+    bone_matrix := t *  r * s
     parent_bone_matrix := MATRIX4F32_IDENTITY
-    
+
     if bone.parent > -1 {
-      parent_bone_matrix = cs_base_pose[bone.parent]
+      parent_bone_matrix = cs_bone_matrices[bone.parent]
     }
-    cs_base_pose[i] = bone_matrix * parent_bone_matrix
-    cs_base_pose_inv[i] = matrix4x4_inverse(cs_base_pose[i])
+    cs_bone_matrices[i] = parent_bone_matrix * bone_matrix
+    cs_bone_matrices_inv[i] = matrix4x4_inverse(cs_bone_matrices[i])
   }
   constant_buffer : ^D3D11.IBuffer
   world_matrix := MATRIX4F32_IDENTITY 
@@ -189,7 +183,7 @@ main :: proc() {
     cam_f : Vector3f32   =  {0,0,1}
     cam_u : Vector3f32   =  {0,1,0}
     cam_r : Vector3f32   =  {1,0,0}
-    cam_p : Vector3f32   =  {0,0,-4}
+    cam_p : Vector3f32   =  {0,0,-5}
     x:= -dot(cam_r,cam_p)
     y:= -dot(cam_u,cam_p)
     z:= -dot(cam_f,cam_p)
@@ -337,7 +331,6 @@ main :: proc() {
       nil,
       &pixel_shader)
   }
-
   num_anim_frame :: 86
   millisec_per_frame :: 33
   anim_frame_index := 0
@@ -367,51 +360,50 @@ main :: proc() {
       delta_tick = 0
     }
 
+    //update idle animation
     //anim_frame_index = 0
     cur_anim_frame := anim_frames[anim_frame_index]
-    cur_anim_pose : [112]Matrix4f32
+    assert(len(bones) == 112)
+    cur_anim_bone_matrices : [112]Matrix4f32
     for bone, bone_index in bones {
       cur_anim_frame_pos := cur_anim_frame.position[bone_index]
       cur_anim_frame_quat := cur_anim_frame.quaternion[bone_index]
-      s :: MATRIX4F32_IDENTITY
-      t : Matrix4f32 = {
-        1,0,0,cur_anim_frame_pos.x,
-        0,1,0,cur_anim_frame_pos.y,
-        0,0,1,cur_anim_frame_pos.z,
-        0,0,0,1,
-      }
-      q : Quaternionf32
+      s : Matrix4f32 = 1
+      t : Matrix4f32 = 1
+      t[3].xyz = cur_anim_frame_pos.xyz
+      //t = transpose(t)
+      q : Quaternionf32 
       q.w = cur_anim_frame_quat.w
       q.x = cur_anim_frame_quat.x
       q.y = cur_anim_frame_quat.y
       q.z = cur_anim_frame_quat.z
       r := matrix4_from_quaternion_f32(q)
-      anim_bone_matrix := s*r*t
-      parent_anim_bone_matrix := MATRIX4F32_IDENTITY
+      anim_bone_matrix := t*r*s 
+      parent_anim_bone_matrix : Matrix4f32 = 1
       if bone.parent > -1 {
-        parent_anim_bone_matrix = cur_anim_pose[bone.parent]
+        parent_anim_bone_matrix = cur_anim_bone_matrices[bone.parent]
       }
-      cur_anim_pose[bone_index] = anim_bone_matrix * parent_anim_bone_matrix
+      cur_anim_bone_matrices[bone_index] = parent_anim_bone_matrix * anim_bone_matrix
     }
     
-    base_pose :[112]Matrix4f32
+    base_pose_matrices :[112]Matrix4f32
     for bone,i in bones {
-      base_pose[i] = cs_base_pose_inv[i] * cs_base_pose[i]
+      base_pose_matrices[i] = cs_bone_matrices_inv[i] * cs_bone_matrices[i]
     }
     
-    skinned_pose : [112]Matrix4f32
+    skinned_pose_matrices : [112]Matrix4f32
     for bone, i in bones {
-      skinned_pose[i] = cs_base_pose_inv[i] * cur_anim_pose[i]
+      skinned_pose_matrices[i] = cur_anim_bone_matrices[i] * cs_bone_matrices_inv[i]   
     }
 
-    //update transform
+    //update constant buffer
     mapped_subresource : D3D11.MAPPED_SUBRESOURCE
     device_context->Map(constant_buffer,0,.WRITE_DISCARD,{},&mapped_subresource)
     {
       using linalg
       constants := (^Constants)(mapped_subresource.pData)
       constants.mvp = mul(projection_matrix,mul(view_matrix,world_matrix))
-      constants.bone_matrix = skinned_pose
+      constants.bone_matrix = skinned_pose_matrices
     }
     device_context->Unmap(constant_buffer,0)
 
@@ -437,7 +429,6 @@ main :: proc() {
     device_context->RSSetViewports(1,&viewport)
 
     for submesh,index in skinned_submeshes {
-      
       vertex_data := submesh.vertex_data
       index_data := submesh.index_data
 

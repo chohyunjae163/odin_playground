@@ -2,7 +2,7 @@ package main
 
 /*
 / hyunjaecho
-/ 2023-05-31
+/ 2023-05-31 - 2023-06-14
 / skinning 
 / vertex blending 
 / enveloping, or 
@@ -150,7 +150,6 @@ main :: proc() {
     s[2][2] = bone.scale.z
     t : Matrix4f32 = 1
     t[3].xyz = bone.position.xyz
-    //t = transpose(t)
     q : Quaternionf32 
     q.x = bone.quaternion.x
     q.y = bone.quaternion.y
